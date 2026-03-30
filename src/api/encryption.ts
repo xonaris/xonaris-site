@@ -24,6 +24,7 @@ const AES_ALGORITHM = 'AES-GCM';
 const IV_LENGTH = 12;
 const TAG_BITS = 128;
 const RSA_STATE_KEY = '__xonaris_rsa_state__';
+const RSA_PEM_STORAGE_KEY = 'xonaris_rsa_public_key';
 
 type SharedRsaState = {
   publicKey: CryptoKey | null;
@@ -43,6 +44,44 @@ function getSharedRsaState(): SharedRsaState {
     };
   }
   return scope[RSA_STATE_KEY]!;
+}
+
+function importRsaPublicKey(pem: string): Promise<CryptoKey> {
+  const keyData = pemToArrayBuffer(pem);
+  return crypto.subtle.importKey(
+    'spki',
+    keyData,
+    RSA_ALGORITHM,
+    false,
+    ['encrypt'],
+  );
+}
+
+function readStoredPublicKeyPem(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage.getItem(RSA_PEM_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredPublicKeyPem(pem: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(RSA_PEM_STORAGE_KEY, pem);
+  } catch {
+    // Ignore storage failures: memory cache still works for the current session.
+  }
+}
+
+function clearStoredPublicKeyPem(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(RSA_PEM_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures.
+  }
 }
 
 // ── State ────────────────────────────────────
@@ -93,12 +132,30 @@ async function fetchRsaPublicKey(): Promise<CryptoKey> {
   if (sharedState.publicKey) return sharedState.publicKey;
   if (sharedState.fetchPromise) return sharedState.fetchPromise;
 
+  const storedPem = readStoredPublicKeyPem();
+  if (storedPem) {
+    sharedState.fetchPromise = importRsaPublicKey(storedPem)
+      .then((key) => {
+        sharedState.publicKey = key;
+        return key;
+      })
+      .catch(() => {
+        clearStoredPublicKeyPem();
+        throw new Error('Stored RSA public key is invalid');
+      });
+
+    return sharedState.fetchPromise.finally(() => {
+      sharedState.fetchPromise = null;
+    });
+  }
+
   sharedState.fetchPromise = (async () => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8_000);
     let res: Response;
     try {
       res = await fetch(buildApiUrl('/auth/public-key'), {
+        cache: 'no-store',
         signal: controller.signal,
         headers: { Accept: 'application/json' },
       });
@@ -107,17 +164,18 @@ async function fetchRsaPublicKey(): Promise<CryptoKey> {
     }
     if (!res.ok) throw new Error(`Failed to fetch RSA public key (${res.status})`);
     const { publicKey } = await res.json();
-    const keyData = pemToArrayBuffer(publicKey);
-    const key = await crypto.subtle.importKey(
-      'spki',
-      keyData,
-      RSA_ALGORITHM,
-      false,
-      ['encrypt'],
-    );
+    writeStoredPublicKeyPem(publicKey);
+    const key = await importRsaPublicKey(publicKey);
     sharedState.publicKey = key;
     return key;
   })().catch((err) => {
+    const fallbackPem = readStoredPublicKeyPem();
+    if (fallbackPem) {
+      return importRsaPublicKey(fallbackPem).then((key) => {
+        sharedState.publicKey = key;
+        return key;
+      });
+    }
     sharedState.fetchPromise = null;
     throw err;
   });
@@ -132,6 +190,7 @@ export function resetRsaKey(): void {
   const sharedState = getSharedRsaState();
   sharedState.publicKey = null;
   sharedState.fetchPromise = null;
+  clearStoredPublicKeyPem();
 }
 
 /** Pre-fetch the RSA key as early as possible. */

@@ -22,6 +22,17 @@ const api = axios.create({
 // ── Shared refresh-token lock ──────────────────
 let refreshPromise: Promise<boolean> | null = null;
 
+function isEncryptionHandshakeError(status?: number, message?: unknown): boolean {
+  if (status !== 400 || typeof message !== 'string') return false;
+  const normalized = message.toLowerCase();
+  return [
+    'invalid encrypted payload',
+    'invalid x-encryption-key header',
+    'encrypted request required',
+    'missing encrypted session key',
+  ].some((fragment) => normalized.includes(fragment));
+}
+
 async function tryRefreshTokens(): Promise<boolean> {
   if (refreshPromise) return refreshPromise;
 
@@ -132,6 +143,18 @@ api.interceptors.response.use(
     const path = window.location.pathname;
     const originalConfig = err.config;
     const skipAuthRefresh = Boolean((originalConfig as any)?._skipAuthRefresh);
+    const backendMessage = err.response?.data?.message;
+
+    // ── Encryption handshake mismatch: reset cached RSA key and retry once ──
+    if (
+      originalConfig &&
+      !(originalConfig as any)?._retriedAfterRsaReset &&
+      isEncryptionHandshakeError(status, backendMessage)
+    ) {
+      (originalConfig as any)._retriedAfterRsaReset = true;
+      resetRsaKey();
+      return api(originalConfig);
+    }
 
     // ── 401: attempt silent token refresh ──
     if (status === 401 && !skipAuthRefresh && !(originalConfig as any)?._retried) {
