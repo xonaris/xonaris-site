@@ -66,11 +66,8 @@ api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
       );
       config.data = payload;
     } catch (err) {
-      // Encryption failed — send request without encryption rather than blocking everything
       cleanupPendingKey(nonce);
-      config.headers.delete('X-Encrypted');
-      config.headers.delete('X-Nonce');
-      config.headers.delete('X-Timestamp');
+      return Promise.reject(new Error('Encryption failed — request blocked for security'));
     }
   } else {
     // GET / DELETE — send encrypted AES key in header
@@ -78,11 +75,8 @@ api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
       const encKey = await encryptKeyForHeaders(nonce);
       config.headers.set('X-Encryption-Key', encKey);
     } catch (err) {
-      // Encryption failed — send request without encryption
       cleanupPendingKey(nonce);
-      config.headers.delete('X-Encrypted');
-      config.headers.delete('X-Nonce');
-      config.headers.delete('X-Timestamp');
+      return Promise.reject(new Error('Encryption failed — request blocked for security'));
     }
   }
 
