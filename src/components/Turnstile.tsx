@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 
 declare global {
   interface Window {
@@ -34,28 +34,28 @@ function loadTurnstileScript(): Promise<void> {
 export default function Turnstile({ siteKey, onVerify, onExpire }: TurnstileProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
-
-  const renderWidget = useCallback(() => {
-    if (!containerRef.current || !window.turnstile) return;
-    // Clean up any existing widget
-    if (widgetIdRef.current) {
-      try { window.turnstile.remove(widgetIdRef.current); } catch {}
-      widgetIdRef.current = null;
-    }
-    widgetIdRef.current = window.turnstile.render(containerRef.current, {
-      sitekey: siteKey,
-      theme: 'dark',
-      callback: onVerify,
-      'expired-callback': onExpire,
-    });
-  }, [siteKey, onVerify, onExpire]);
+  const onVerifyRef = useRef(onVerify);
+  const onExpireRef = useRef(onExpire);
+  onVerifyRef.current = onVerify;
+  onExpireRef.current = onExpire;
 
   useEffect(() => {
     if (!siteKey) return;
     let cancelled = false;
 
     loadTurnstileScript().then(() => {
-      if (!cancelled) renderWidget();
+      if (cancelled || !containerRef.current || !window.turnstile) return;
+      // Clean up any existing widget
+      if (widgetIdRef.current) {
+        try { window.turnstile.remove(widgetIdRef.current); } catch {}
+        widgetIdRef.current = null;
+      }
+      widgetIdRef.current = window.turnstile.render(containerRef.current, {
+        sitekey: siteKey,
+        theme: 'dark',
+        callback: (token: string) => onVerifyRef.current(token),
+        'expired-callback': () => onExpireRef.current?.(),
+      });
     });
 
     return () => {
@@ -65,7 +65,7 @@ export default function Turnstile({ siteKey, onVerify, onExpire }: TurnstileProp
         widgetIdRef.current = null;
       }
     };
-  }, [siteKey, renderWidget]);
+  }, [siteKey]);
 
   if (!siteKey) return null;
 
