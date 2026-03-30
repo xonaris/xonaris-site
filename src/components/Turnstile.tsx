@@ -16,7 +16,20 @@ interface TurnstileProps {
   onExpire?: () => void;
 }
 
-let scriptLoaded = false;
+let scriptLoadPromise: Promise<void> | null = null;
+
+function loadTurnstileScript(): Promise<void> {
+  if (window.turnstile) return Promise.resolve();
+  if (scriptLoadPromise) return scriptLoadPromise;
+  scriptLoadPromise = new Promise((resolve) => {
+    const script = document.createElement('script');
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+    script.async = true;
+    script.onload = () => resolve();
+    document.head.appendChild(script);
+  });
+  return scriptLoadPromise;
+}
 
 export default function Turnstile({ siteKey, onVerify, onExpire }: TurnstileProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -39,31 +52,14 @@ export default function Turnstile({ siteKey, onVerify, onExpire }: TurnstileProp
 
   useEffect(() => {
     if (!siteKey) return;
+    let cancelled = false;
 
-    if (window.turnstile) {
-      renderWidget();
-      return;
-    }
-
-    if (!scriptLoaded) {
-      scriptLoaded = true;
-      const script = document.createElement('script');
-      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
-      script.async = true;
-      script.onload = () => renderWidget();
-      document.head.appendChild(script);
-    } else {
-      // Script is loading, poll for readiness
-      const interval = setInterval(() => {
-        if (window.turnstile) {
-          clearInterval(interval);
-          renderWidget();
-        }
-      }, 100);
-      return () => clearInterval(interval);
-    }
+    loadTurnstileScript().then(() => {
+      if (!cancelled) renderWidget();
+    });
 
     return () => {
+      cancelled = true;
       if (widgetIdRef.current && window.turnstile) {
         try { window.turnstile.remove(widgetIdRef.current); } catch {}
         widgetIdRef.current = null;
