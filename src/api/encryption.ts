@@ -104,7 +104,8 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
   const b64 = pem
     .replace(/-----BEGIN PUBLIC KEY-----/, '')
     .replace(/-----END PUBLIC KEY-----/, '')
-    .replace(/\s/g, '');
+    // Some deployments may inject PEMs with replacement characters instead of line breaks.
+    .replace(/[^A-Za-z0-9+/=]/g, '');
   const binary = atob(b64);
   const buf = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) buf[i] = binary.charCodeAt(i);
