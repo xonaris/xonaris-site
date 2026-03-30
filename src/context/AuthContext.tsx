@@ -99,7 +99,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    // Safety net: never stay in loading=true beyond 12 s (covers axios 10s timeout + margin)
+    const timeout = setTimeout(() => setLoading(false), 12_000);
+    refresh().finally(() => clearTimeout(timeout));
+  }, [refresh]);
 
   const login = () => {
     window.location.href = authApi.getDiscordLoginUrl();
