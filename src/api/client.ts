@@ -8,9 +8,12 @@ import {
   cleanupPendingKey,
   resetRsaKey,
 } from './encryption';
+import { API_URL } from './config';
+
+export { API_URL };
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: API_URL,
   withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 });
@@ -22,7 +25,7 @@ async function tryRefreshTokens(): Promise<boolean> {
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = axios
-    .post('/api/auth/refresh', {}, { withCredentials: true })
+    .post(`${API_URL}/auth/refresh`, {}, { withCredentials: true })
     .then(() => {
       refreshPromise = null;
       return true;

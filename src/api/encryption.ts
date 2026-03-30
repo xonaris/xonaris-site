@@ -73,7 +73,8 @@ async function fetchRsaPublicKey(): Promise<CryptoKey> {
   if (_rsaFetchPromise) return _rsaFetchPromise;
 
   _rsaFetchPromise = (async () => {
-    const res = await fetch('/api/auth/public-key');
+    const apiUrl = import.meta.env.VITE_API_URL || '/api';
+    const res = await fetch(`${apiUrl}/auth/public-key`);
     if (!res.ok) throw new Error('Failed to fetch RSA public key');
     const { publicKey } = await res.json();
     const keyData = pemToArrayBuffer(publicKey);

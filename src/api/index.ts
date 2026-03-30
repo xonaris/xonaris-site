@@ -1,4 +1,4 @@
-import api from './client';
+import api, { API_URL } from './client';
 import { prefetchPublicKey } from './encryption';
 import type {
   User, Channel, ChannelFull, ChannelSourceFull, Favorite, Report, News,
@@ -21,11 +21,11 @@ export const authApi = {
   }>('/auth/public-config').then((r) => r.data),
   getMe: () => api.get<User>('/users/me').then((r) => r.data),
   logout: () => api.post('/auth/logout').then((r) => r.data),
-  getDiscordLoginUrl: () => '/api/auth/discord?mode=login',
+  getDiscordLoginUrl: () => `${API_URL}/auth/discord?mode=login`,
   getDiscordRegisterUrl: (pseudo: string, ref?: string) => {
     const params = new URLSearchParams({ mode: 'register', pseudo });
     if (ref) params.set('ref', ref);
-    return `/api/auth/discord?${params.toString()}`;
+    return `${API_URL}/auth/discord?${params.toString()}`;
   },
   /** Real-time pseudo validation (for registration form) */
   checkPseudo: (pseudo: string) =>
@@ -41,7 +41,7 @@ export const authApi = {
 export const userApi = {
   getMe: () => api.get<User>('/users/me').then((r) => r.data),
   syncDiscord: () => api.patch<User>('/users/me/sync-discord').then((r) => r.data),
-  getDiscordSyncUrl: () => '/api/auth/discord?mode=sync',
+  getDiscordSyncUrl: () => `${API_URL}/auth/discord?mode=sync`,
 };
 
 // ── Channels ─────────────────────────────────
@@ -57,7 +57,11 @@ export const streamApi = {
     if (sourceId) params.set('sourceId', sourceId);
     if (adToken) params.set('ad_token', adToken);
     const qs = params.toString();
-    return api.get<{ url: string }>(`/stream/${channelId}${qs ? `?${qs}` : ''}`).then((r) => r.data);
+    return api.get<{ url: string }>(`/stream/${channelId}${qs ? `?${qs}` : ''}`).then((r) => {
+      // Prepend API base URL so HLS player loads from the correct origin
+      if (r.data.url) r.data.url = `${API_URL}${r.data.url}`;
+      return r.data;
+    });
   },
 };
 
