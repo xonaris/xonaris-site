@@ -15,6 +15,7 @@ export { API_URL };
 const api = axios.create({
   baseURL: API_URL,
   withCredentials: true,
+  timeout: 10_000, // 10 s — prevents infinite hang when API is unreachable
   headers: { 'Content-Type': 'application/json' },
 });
 
