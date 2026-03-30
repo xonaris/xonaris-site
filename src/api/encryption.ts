@@ -26,6 +26,8 @@ const TAG_BITS = 128;
 
 let _rsaPublicKey: CryptoKey | null = null;
 let _rsaFetchPromise: Promise<CryptoKey> | null = null;
+let _rsaFetchFailedAt = 0;          // timestamp of last failure (cooldown)
+const RSA_RETRY_COOLDOWN_MS = 30_000; // 30 s before retrying after failure
 
 /** Map: nonce → AES CryptoKey  (for response decryption) */
 const pendingKeys = new Map<string, { key: CryptoKey; createdAt: number }>();
@@ -72,6 +74,11 @@ async function fetchRsaPublicKey(): Promise<CryptoKey> {
   if (_rsaPublicKey) return _rsaPublicKey;
   if (_rsaFetchPromise) return _rsaFetchPromise;
 
+  // Cooldown after failure — don't hammer the server
+  if (_rsaFetchFailedAt && Date.now() - _rsaFetchFailedAt < RSA_RETRY_COOLDOWN_MS) {
+    throw new Error('RSA key fetch on cooldown');
+  }
+
   _rsaFetchPromise = (async () => {
     const apiUrl = import.meta.env.VITE_API_URL || '/api';
     const controller = new AbortController();
@@ -82,7 +89,7 @@ async function fetchRsaPublicKey(): Promise<CryptoKey> {
     } finally {
       clearTimeout(timer);
     }
-    if (!res.ok) throw new Error('Failed to fetch RSA public key');
+    if (!res.ok) throw new Error(`Failed to fetch RSA public key (${res.status})`);
     const { publicKey } = await res.json();
     const keyData = pemToArrayBuffer(publicKey);
     const key = await crypto.subtle.importKey(
@@ -93,9 +100,11 @@ async function fetchRsaPublicKey(): Promise<CryptoKey> {
       ['encrypt'],
     );
     _rsaPublicKey = key;
+    _rsaFetchFailedAt = 0; // clear cooldown on success
     return key;
   })().catch((err) => {
-    _rsaFetchPromise = null; // allow retry on next request
+    _rsaFetchPromise = null;
+    _rsaFetchFailedAt = Date.now(); // start cooldown
     throw err;
   });
 

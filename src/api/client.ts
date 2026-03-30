@@ -6,7 +6,6 @@ import {
   encryptKeyForHeaders,
   decryptResponse,
   cleanupPendingKey,
-  resetRsaKey,
 } from './encryption';
 import { API_URL } from './config';
 
@@ -66,35 +65,24 @@ api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
         nonce,
       );
       config.data = payload;
-    } catch {
-      // First attempt failed (stale RSA key?) — retry once
-      resetRsaKey();
-      try {
-        const payload = await encryptRequestBody(
-          JSON.stringify(config.data),
-          nonce,
-        );
-        config.data = payload;
-      } catch (err) {
-        // Encryption failed — reject the request instead of sending plaintext
-        cleanupPendingKey(nonce);
-        return Promise.reject(new Error('Encryption failed — request blocked for security'));
-      }
+    } catch (err) {
+      // Encryption failed — send request without encryption rather than blocking everything
+      cleanupPendingKey(nonce);
+      config.headers.delete('X-Encrypted');
+      config.headers.delete('X-Nonce');
+      config.headers.delete('X-Timestamp');
     }
   } else {
     // GET / DELETE — send encrypted AES key in header
     try {
       const encKey = await encryptKeyForHeaders(nonce);
       config.headers.set('X-Encryption-Key', encKey);
-    } catch {
-      resetRsaKey();
-      try {
-        const encKey = await encryptKeyForHeaders(nonce);
-        config.headers.set('X-Encryption-Key', encKey);
-      } catch (err) {
-        cleanupPendingKey(nonce);
-        return Promise.reject(new Error('Encryption failed — request blocked for security'));
-      }
+    } catch (err) {
+      // Encryption failed — send request without encryption
+      cleanupPendingKey(nonce);
+      config.headers.delete('X-Encrypted');
+      config.headers.delete('X-Nonce');
+      config.headers.delete('X-Timestamp');
     }
   }
 
