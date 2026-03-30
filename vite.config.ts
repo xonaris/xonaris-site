@@ -26,9 +26,7 @@ export default defineConfig({
       },
       mangle: {
         toplevel: true,
-        properties: {
-          regex: /^_/, // mangle private-looking props
-        },
+        // NOTE: never mangle properties — breaks React/library internals
       },
       format: {
         comments: false,
