@@ -23,11 +23,29 @@ const RSA_ALGORITHM: RsaHashedImportParams = {
 const AES_ALGORITHM = 'AES-GCM';
 const IV_LENGTH = 12;
 const TAG_BITS = 128;
+const RSA_STATE_KEY = '__xonaris_rsa_state__';
+
+type SharedRsaState = {
+  publicKey: CryptoKey | null;
+  fetchPromise: Promise<CryptoKey> | null;
+};
+
+type GlobalWithRsaState = typeof globalThis & {
+  [RSA_STATE_KEY]?: SharedRsaState;
+};
+
+function getSharedRsaState(): SharedRsaState {
+  const scope = globalThis as GlobalWithRsaState;
+  if (!scope[RSA_STATE_KEY]) {
+    scope[RSA_STATE_KEY] = {
+      publicKey: null,
+      fetchPromise: null,
+    };
+  }
+  return scope[RSA_STATE_KEY]!;
+}
 
 // ── State ────────────────────────────────────
-
-let _rsaPublicKey: CryptoKey | null = null;
-let _rsaFetchPromise: Promise<CryptoKey> | null = null;
 
 /** Map: nonce → AES CryptoKey  (for response decryption) */
 const pendingKeys = new Map<string, { key: CryptoKey; createdAt: number }>();
@@ -71,10 +89,11 @@ function fromBase64(str: string): Uint8Array {
 // ── Key management ───────────────────────────
 
 async function fetchRsaPublicKey(): Promise<CryptoKey> {
-  if (_rsaPublicKey) return _rsaPublicKey;
-  if (_rsaFetchPromise) return _rsaFetchPromise;
+  const sharedState = getSharedRsaState();
+  if (sharedState.publicKey) return sharedState.publicKey;
+  if (sharedState.fetchPromise) return sharedState.fetchPromise;
 
-  _rsaFetchPromise = (async () => {
+  sharedState.fetchPromise = (async () => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8_000);
     let res: Response;
@@ -96,20 +115,23 @@ async function fetchRsaPublicKey(): Promise<CryptoKey> {
       false,
       ['encrypt'],
     );
-    _rsaPublicKey = key;
+    sharedState.publicKey = key;
     return key;
   })().catch((err) => {
-    _rsaFetchPromise = null;
+    sharedState.fetchPromise = null;
     throw err;
   });
 
-  return _rsaFetchPromise;
+  return sharedState.fetchPromise.finally(() => {
+    sharedState.fetchPromise = null;
+  });
 }
 
 /** Force re-fetch of the RSA public key (e.g. after backend restart). */
 export function resetRsaKey(): void {
-  _rsaPublicKey = null;
-  _rsaFetchPromise = null;
+  const sharedState = getSharedRsaState();
+  sharedState.publicKey = null;
+  sharedState.fetchPromise = null;
 }
 
 /** Pre-fetch the RSA key as early as possible. */
