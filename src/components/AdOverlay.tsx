@@ -3,10 +3,49 @@ import { adsApi } from '../api';
 import { Loader2, ExternalLink, Crown, AlertTriangle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
+interface AdPayload {
+  url: string;
+  nonce: string;
+}
+
 interface AdOverlayProps {
   channelId: string;
   channelName?: string;
   onAdValidated: (adToken: string) => void;
+}
+
+const AD_PREFETCH_TTL_MS = 60_000;
+const adPrefetchCache = new Map<string, { data: AdPayload; expiresAt: number }>();
+const adPrefetchPromises = new Map<string, Promise<AdPayload>>();
+
+function getCachedAd(channelId: string): AdPayload | null {
+  const cached = adPrefetchCache.get(channelId);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    adPrefetchCache.delete(channelId);
+    return null;
+  }
+  return cached.data;
+}
+
+function cacheAd(channelId: string, data: AdPayload): AdPayload {
+  adPrefetchCache.set(channelId, {
+    data,
+    expiresAt: Date.now() + AD_PREFETCH_TTL_MS,
+  });
+  return data;
+}
+
+function clearCachedAd(channelId: string): void {
+  adPrefetchCache.delete(channelId);
+  adPrefetchPromises.delete(channelId);
+}
+
+function toAdErrorMessage(err: any): string {
+  if (err?.response?.status === 429) {
+    return 'Trop de demandes de publicité en peu de temps. Attendez quelques secondes puis réessayez.';
+  }
+  return err?.response?.data?.message || err?.message || 'Erreur lors du chargement de la publicité.';
 }
 
 /**
@@ -39,16 +78,38 @@ export default function AdOverlay({ channelId, channelName, onAdValidated }: AdO
     return popup;
   }, []);
 
+  const loadAd = useCallback(async (): Promise<AdPayload> => {
+    const cached = getCachedAd(channelId);
+    if (cached) return cached;
+
+    const pending = adPrefetchPromises.get(channelId);
+    if (pending) return pending;
+
+    const promise = adsApi.getAd(channelId)
+      .then((data) => cacheAd(channelId, data))
+      .finally(() => {
+        adPrefetchPromises.delete(channelId);
+      });
+
+    adPrefetchPromises.set(channelId, promise);
+    return promise;
+  }, [channelId]);
+
   // Pre-fetch the ad URL as soon as the overlay appears so we can call
-  // window.open(url) synchronously on click — bypassing popup blockers.
+  // window.open(...) once on click and reuse the already-loaded ad data when possible.
   useEffect(() => {
-    adsApi.getAd(channelId)
+    let cancelled = false;
+    loadAd()
       .then(({ url, nonce }) => {
+        if (cancelled) return;
         setPreloadedUrl(url);
         adNonceRef.current = nonce;
       })
       .catch(() => {});
-  }, [channelId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [channelId, loadAd]);
 
   // Poll every 500ms: if the ad popup has been closed, auto-validate.
   useEffect(() => {
@@ -74,9 +135,19 @@ export default function AdOverlay({ channelId, channelName, onAdValidated }: AdO
           return;
         }
         adsApi.validateAd(channelId, nonce)
-          .then(({ ad_token }) => onAdValidated(ad_token))
+          .then(({ ad_token }) => {
+            clearCachedAd(channelId);
+            onAdValidated(ad_token);
+          })
           .catch((err: any) => {
-            const msg = err?.response?.data?.message || 'Erreur lors de la validation.';
+            const msg = err?.response?.status === 429
+              ? 'Validation trop sollicitée. Attendez quelques secondes puis réessayez.'
+              : err?.response?.data?.message || 'Erreur lors de la validation.';
+            if (typeof msg === 'string' && msg.toLowerCase().includes('nonce')) {
+              clearCachedAd(channelId);
+              adNonceRef.current = null;
+              setPreloadedUrl(null);
+            }
             setError(msg);
             setStep('opened');
           });
@@ -98,11 +169,12 @@ export default function AdOverlay({ channelId, channelName, onAdValidated }: AdO
 
     try {
       let url = preloadedUrl;
-      if (!url) {
+      if (!url || !adNonceRef.current) {
         setStep('loading');
-        const adResult = await adsApi.getAd(channelId);
+        const adResult = await loadAd();
         url = adResult.url;
         adNonceRef.current = adResult.nonce;
+        setPreloadedUrl(adResult.url);
       }
       if (!url.startsWith('https://') && !url.startsWith('http://')) {
         throw new Error('URL de publicité invalide.');
@@ -112,11 +184,11 @@ export default function AdOverlay({ channelId, channelName, onAdValidated }: AdO
     } catch (err: any) {
       win.close();
       adWindowRef.current = null;
-      const msg = err?.response?.data?.message || err?.message || 'Erreur lors du chargement de la publicité.';
+      const msg = toAdErrorMessage(err);
       setError(msg);
       setStep('initial');
     }
-  }, [channelId, preloadedUrl, openAdPopup]);
+  }, [channelId, preloadedUrl, openAdPopup, loadAd]);
 
   const handleConfirm = useCallback(async () => {
     setStep('validating');
@@ -125,9 +197,17 @@ export default function AdOverlay({ channelId, channelName, onAdValidated }: AdO
       const nonce = adNonceRef.current;
       if (!nonce) throw new Error('Nonce manquant');
       const { ad_token } = await adsApi.validateAd(channelId, nonce);
+      clearCachedAd(channelId);
       onAdValidated(ad_token);
     } catch (err: any) {
-      const msg = err?.response?.data?.message || 'Erreur lors de la validation.';
+      const msg = err?.response?.status === 429
+        ? 'Validation trop sollicitée. Attendez quelques secondes puis réessayez.'
+        : err?.response?.data?.message || 'Erreur lors de la validation.';
+      if (typeof msg === 'string' && msg.toLowerCase().includes('nonce')) {
+        clearCachedAd(channelId);
+        adNonceRef.current = null;
+        setPreloadedUrl(null);
+      }
       setError(msg);
       setStep('opened');
     }
