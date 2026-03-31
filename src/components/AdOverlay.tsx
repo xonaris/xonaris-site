@@ -13,9 +13,8 @@ interface AdOverlayProps {
  * Full-screen overlay blocking the video player for non-premium users.
  * Flow:
  *  1. On mount → pre-fetch the ad URL in the background.
- *  2. On click → if URL is ready, call window.open(url) synchronously (never blocked).
- *               If URL isn't ready yet, open about:blank first then navigate it.
- *               If all popups are blocked, fall back to redirecting in the same tab.
+ *  2. On click → open about:blank synchronously, then navigate that popup to the ad URL.
+ *               This keeps the browser gesture chain intact and avoids false popup-blocked states.
  *  3. Once opened, show "Confirmer" button.
  *  4. On confirm → POST /ads/validate → receive ad_token → pass it up.
  */
@@ -25,6 +24,20 @@ export default function AdOverlay({ channelId, channelName, onAdValidated }: AdO
   const [preloadedUrl, setPreloadedUrl] = useState<string | null>(null);
   const adWindowRef = useRef<Window | null>(null);
   const adNonceRef = useRef<string | null>(null);
+
+  const openAdPopup = useCallback((): Window | null => {
+    const popup = window.open('about:blank', '_blank');
+    if (!popup) return null;
+
+    // Cut the opener link before navigating to an arbitrary external ad URL.
+    try {
+      popup.opener = null;
+    } catch {
+      // Some browsers expose opener as read-only here; keep the popup usable anyway.
+    }
+
+    return popup;
+  }, []);
 
   // Pre-fetch the ad URL as soon as the overlay appears so we can call
   // window.open(url) synchronously on click — bypassing popup blockers.
@@ -42,7 +55,14 @@ export default function AdOverlay({ channelId, channelName, onAdValidated }: AdO
     if (step !== 'opened') return;
     const interval = setInterval(() => {
       const win = adWindowRef.current;
-      if (win && win.closed) {
+      let isClosed = false;
+      try {
+        isClosed = !!win?.closed;
+      } catch {
+        isClosed = false;
+      }
+
+      if (win && isClosed) {
         clearInterval(interval);
         adWindowRef.current = null;
         setStep('validating');
@@ -67,24 +87,7 @@ export default function AdOverlay({ channelId, channelName, onAdValidated }: AdO
 
   const handleWatchAd = useCallback(async () => {
     setError('');
-
-    // Case 1 — URL pre-loaded: open it synchronously inside the click event → never blocked.
-    if (preloadedUrl) {
-      // Validate URL before opening
-      if (!preloadedUrl.startsWith('https://') && !preloadedUrl.startsWith('http://')) {
-        setError('URL de publicité invalide.');
-        return;
-      }
-      const win = window.open(preloadedUrl, '_blank', 'noopener');
-      if (win) {
-        adWindowRef.current = win;
-        setStep('opened');
-        return;
-      }
-    }
-
-    // Case 2 — URL not ready yet: open about:blank synchronously then navigate it.
-    const win = window.open('about:blank', '_blank');
+    const win = openAdPopup();
 
     if (!win) {
       setError('Les popups sont bloqués par votre navigateur. Autorisez-les pour ce site et réessayez.');
@@ -92,24 +95,28 @@ export default function AdOverlay({ channelId, channelName, onAdValidated }: AdO
     }
 
     adWindowRef.current = win;
-    setStep('loading');
+
     try {
       let url = preloadedUrl;
       if (!url) {
+        setStep('loading');
         const adResult = await adsApi.getAd(channelId);
         url = adResult.url;
         adNonceRef.current = adResult.nonce;
+      }
+      if (!url.startsWith('https://') && !url.startsWith('http://')) {
+        throw new Error('URL de publicité invalide.');
       }
       win.location.href = url;
       setStep('opened');
     } catch (err: any) {
       win.close();
       adWindowRef.current = null;
-      const msg = err?.response?.data?.message || 'Erreur lors du chargement de la publicité.';
+      const msg = err?.response?.data?.message || err?.message || 'Erreur lors du chargement de la publicité.';
       setError(msg);
       setStep('initial');
     }
-  }, [channelId, preloadedUrl]);
+  }, [channelId, preloadedUrl, openAdPopup]);
 
   const handleConfirm = useCallback(async () => {
     setStep('validating');

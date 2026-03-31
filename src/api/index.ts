@@ -33,8 +33,8 @@ export const authApi = {
   checkReferral: (code: string) =>
     api.post<{ valid: boolean; pseudo: string | null }>('/auth/check-referral', { code }).then((r) => r.data),
   /** Full pre-register validation: pseudo + captcha (+ referral) */
-  validateRegister: (pseudo: string, captcha_token: string, referral?: string) =>
-    api.post<{ valid: boolean }>('/auth/validate-register', { pseudo, captcha_token, referral }).then((r) => r.data),
+  validateRegister: (pseudo: string, captcha_token: string, ref?: string) =>
+    api.post<{ valid: boolean; redirect_url: string }>('/auth/validate-register', { pseudo, captcha_token, ref }).then((r) => r.data),
 };
 
 // ── Users ────────────────────────────────────

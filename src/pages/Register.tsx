@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Navigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { authApi } from '../api';
+import { buildApiUrl } from '../api/config';
 import { CheckCircle, AlertCircle, Loader2, Users, ArrowRight } from 'lucide-react';
 import DiscordIcon from '../components/DiscordIcon';
 import Turnstile from '../components/Turnstile';
@@ -122,9 +123,12 @@ export default function Register() {
 
     setSubmitting(true);
     try {
-      await authApi.validateRegister(pseudo.trim(), captchaToken || 'dev-bypass', referral.trim() || undefined);
-      const url = authApi.getDiscordRegisterUrl(pseudo.trim(), referral.trim() || undefined);
-      window.location.href = url;
+      const { redirect_url } = await authApi.validateRegister(
+        pseudo.trim(),
+        captchaToken || 'dev-bypass',
+        referral.trim() || undefined,
+      );
+      window.location.href = buildApiUrl(redirect_url);
     } catch (err: any) {
       setError(err?.response?.data?.message || "Impossible de lancer l'inscription. Réessayez.");
       setSubmitting(false);
