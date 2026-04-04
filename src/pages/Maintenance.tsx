@@ -10,7 +10,7 @@ export default function Maintenance() {
   return (
     <div
       className="min-h-screen flex flex-col items-center justify-center px-4 relative overflow-hidden bg-[#080d12]"
-      style={bckgrndMaintenance ? { backgroundImage: `url(${bckgrndMaintenance})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+      style={bckgrndMaintenance && /^https?:\/\//.test(bckgrndMaintenance) ? { backgroundImage: `url(${bckgrndMaintenance})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
     >
       {/* Dark overlay when background image is set */}
       {bckgrndMaintenance && <div className="absolute inset-0 bg-black/60 z-0" />}

@@ -11,6 +11,12 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
+      // Fallback for direct /stream/* access (e.g. HLS segments fetched by hls.js
+      // via a URL that bypasses the /api prefix rewrite)
+      '/stream': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
     },
   },
   build: {

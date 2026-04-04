@@ -58,24 +58,18 @@ function importRsaPublicKey(pem: string): Promise<CryptoKey> {
 }
 
 function readStoredPublicKeyPem(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    return window.localStorage.getItem(RSA_PEM_STORAGE_KEY);
-  } catch {
-    return null;
-  }
+  // Security: RSA key is kept in memory only (not localStorage) to prevent
+  // persistent key replacement via XSS. The key is re-fetched each session.
+  return null;
 }
 
-function writeStoredPublicKeyPem(pem: string): void {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(RSA_PEM_STORAGE_KEY, pem);
-  } catch {
-    // Ignore storage failures: memory cache still works for the current session.
-  }
+function writeStoredPublicKeyPem(_pem: string): void {
+  // Intentionally no-op: key stays in-memory via getSharedRsaState() only.
+  // Removed localStorage persistence to prevent XSS-based key replacement.
 }
 
 function clearStoredPublicKeyPem(): void {
+  // Clean up any previously stored key from localStorage
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.removeItem(RSA_PEM_STORAGE_KEY);

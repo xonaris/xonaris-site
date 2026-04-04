@@ -36,7 +36,7 @@ export default function Login() {
   return (
     <div className="min-h-screen pt-24 pb-16 md:pt-32 md:pb-24 flex items-center justify-center px-4 relative overflow-hidden">
       {/* Background ambient light */}
-      <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] mix-blend-overlay pointer-events-none" />
+      <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-[0.03] mix-blend-overlay pointer-events-none" />
 
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 animate-fade-up flex justify-center">
         <div className="w-full max-w-md">

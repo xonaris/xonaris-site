@@ -34,7 +34,7 @@ export default function Banned() {
   return (
     <div
       className="min-h-screen flex flex-col items-center justify-center px-4 relative overflow-hidden bg-[#080d12]"
-      style={bckgrndBanned ? { backgroundImage: `url(${bckgrndBanned})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+      style={bckgrndBanned && /^https?:\/\//.test(bckgrndBanned) ? { backgroundImage: `url(${bckgrndBanned})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
     >
       {/* Dark overlay when background image is set */}
       {bckgrndBanned && <div className="absolute inset-0 bg-black/60 z-0" />}

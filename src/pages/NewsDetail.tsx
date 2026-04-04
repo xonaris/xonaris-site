@@ -49,17 +49,8 @@ export default function NewsDetail() {
       setShared(true);
       setTimeout(() => setShared(false), 2000);
     } catch {
-      // Fallback for non-HTTPS or denied permissions
-      const textarea = document.createElement('textarea');
-      textarea.value = window.location.href;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      setShared(true);
-      setTimeout(() => setShared(false), 2000);
+      // Clipboard API unavailable — show manual copy message
+      setShared(false);
     }
   };
 

@@ -14,9 +14,9 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
       return (
         <div style={{ minHeight: '100vh', background: '#0a0f1e', color: '#e2e8f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif', padding: '2rem', textAlign: 'center' }}>
           <h1 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>Une erreur est survenue</h1>
-          <pre style={{ background: '#1e293b', padding: '1rem', borderRadius: '0.5rem', fontSize: '0.75rem', maxWidth: '600px', overflowX: 'auto', whiteSpace: 'pre-wrap', textAlign: 'left' }}>
-            {(this.state.error as Error).message}
-          </pre>
+          <p style={{ background: '#1e293b', padding: '1rem', borderRadius: '0.5rem', fontSize: '0.875rem', maxWidth: '600px', textAlign: 'center', color: '#94a3b8' }}>
+            Une erreur inattendue s'est produite. Veuillez recharger la page.
+          </p>
           <button onClick={() => window.location.reload()} style={{ marginTop: '1.5rem', padding: '0.5rem 1.5rem', background: '#6366f1', color: '#fff', border: 'none', borderRadius: '0.375rem', cursor: 'pointer' }}>
             Recharger
           </button>

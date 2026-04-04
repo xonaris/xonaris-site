@@ -19,7 +19,11 @@ export const authApi = {
     bckgrnd_banned: string | null;
     bckgrnd_maintenance: string | null;
   }>('/auth/public-config').then((r) => r.data),
-  getMe: () => api.get<User>('/users/me').then((r) => r.data),
+  getMe: () => api.get<{ user: User | null; banned?: boolean; ban_reason?: string | null }>('/auth/session').then((r) => {
+    if (!r.data.user) throw { response: { status: 401 } };
+    if (r.data.banned) throw { response: { status: 403, data: { message: 'Compte banni', ban_reason: r.data.ban_reason } } };
+    return r.data.user;
+  }),
   logout: () => api.post('/auth/logout').then((r) => r.data),
   getDiscordLoginUrl: () => `${API_URL}/auth/discord?mode=login`,
   getDiscordRegisterUrl: (pseudo: string, ref?: string) => {
@@ -46,7 +50,21 @@ export const userApi = {
 
 // ── Channels ─────────────────────────────────
 export const channelApi = {
-  getAll: () => api.get<Channel[]>('/channels').then((r) => r.data),
+  getAll: (page = 1, limit = 50, search?: string, category?: string) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (search) params.set('search', search);
+    if (category && category !== 'Toutes') params.set('category', category);
+    return api.get<{ items: Channel[]; total: number; page: number; limit: number; totalPages: number }>(
+      `/channels?${params}`,
+    ).then((r) => r.data);
+  },
+  getCategories: () =>
+    api.get<{ name: string; count: number }[]>('/channels/categories').then((r) => r.data),
+  getSuggestions: (excludeId: string, category?: string, count = 6) => {
+    const params = new URLSearchParams({ exclude: excludeId, count: String(count) });
+    if (category) params.set('category', category);
+    return api.get<Channel[]>(`/channels/suggestions?${params}`).then((r) => r.data);
+  },
   getById: (id: string) => api.get<Channel>(`/channels/${id}`).then((r) => r.data),
 };
 
@@ -135,7 +153,27 @@ export const adminApi = {
     api.get<{ users: AdminUser[]; total: number }>(`/admin/bans?page=${page}&limit=${limit}`).then((r) => r.data),
 
   // Channels
-  getChannels: () => api.get<ChannelFull[]>('/admin/channels').then((r) => r.data),
+  getChannels: (
+    page = 1,
+    limit = 50,
+    search?: string,
+    category?: string,
+    status?: string,
+    sortKey?: string,
+    sortDir?: string,
+  ) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (search) params.set('search', search);
+    if (category && category !== 'ALL') params.set('category', category);
+    if (status && status !== 'ALL') params.set('status', status);
+    if (sortKey) params.set('sortKey', sortKey);
+    if (sortDir) params.set('sortDir', sortDir);
+    return api
+      .get<{ items: ChannelFull[]; total: number; page: number; limit: number; totalPages: number }>(
+        `/admin/channels?${params}`,
+      )
+      .then((r) => r.data);
+  },
   getChannelById: (id: string) => api.get<ChannelFull>(`/admin/channels/${id}`).then((r) => r.data),
   createChannel: (data: Partial<ChannelFull>) => api.post<ChannelFull>('/admin/channels', data).then((r) => r.data),
   updateChannel: (id: string, data: Partial<ChannelFull>) =>

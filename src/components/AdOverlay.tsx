@@ -65,16 +65,9 @@ export default function AdOverlay({ channelId, channelName, onAdValidated }: AdO
   const adNonceRef = useRef<string | null>(null);
 
   const openAdPopup = useCallback((): Window | null => {
-    const popup = window.open('about:blank', '_blank');
+    // Use noopener to prevent the ad page from accessing window.opener
+    const popup = window.open('about:blank', '_blank', 'noopener,noreferrer');
     if (!popup) return null;
-
-    // Cut the opener link before navigating to an arbitrary external ad URL.
-    try {
-      popup.opener = null;
-    } catch {
-      // Some browsers expose opener as read-only here; keep the popup usable anyway.
-    }
-
     return popup;
   }, []);
 

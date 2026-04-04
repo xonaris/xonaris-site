@@ -125,9 +125,13 @@ export default function Register() {
     try {
       const { redirect_url } = await authApi.validateRegister(
         pseudo.trim(),
-        captchaToken || 'dev-bypass',
+        captchaToken || (import.meta.env.DEV ? 'dev-bypass' : ''),
         referral.trim() || undefined,
       );
+      // Validate redirect_url is a safe relative path (prevent open redirect)
+      if (!redirect_url || !redirect_url.startsWith('/') || redirect_url.startsWith('//')) {
+        throw new Error('URL de redirection invalide');
+      }
       window.location.href = buildApiUrl(redirect_url);
     } catch (err: any) {
       setError(err?.response?.data?.message || "Impossible de lancer l'inscription. Réessayez.");
@@ -138,7 +142,7 @@ export default function Register() {
   return (
     <div className="min-h-screen pt-24 pb-16 md:pt-32 md:pb-24 flex items-center justify-center px-4 relative overflow-hidden">
       {/* Background ambient light */}
-      <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] mix-blend-overlay pointer-events-none" />
+      <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-[0.03] mix-blend-overlay pointer-events-none" />
 
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 animate-fade-up flex justify-center">
         <div className="w-full max-w-lg">

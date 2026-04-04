@@ -7,7 +7,7 @@ import {
   LogOut,
   Shield,
   Crown,
-  MonitorPlay,
+  TvMinimal,
   Newspaper,
   Heart,
   Flag,
@@ -39,7 +39,7 @@ export default function Navbar() {
   const isPremium = user?.is_premium && premiumUntil && premiumUntil > new Date();
 
   const navLinks = [
-    { name: 'Chaînes', path: '/', icon: MonitorPlay },
+    { name: 'Chaînes', path: '/', icon: TvMinimal },
     { name: 'Nouveautés', path: '/news', icon: Newspaper },
   ];
 

@@ -14,9 +14,11 @@ interface Props {
   onChangeSource?: (id: string) => void;
   onError?: (msg: string) => void;
   adOverlay?: React.ReactNode;
+  channelName?: string;
+  channelLogo?: string;
 }
 
-export default function VideoPlayer({ src, poster, premiumLocked, streamError, sources = [], selectedSourceId, onChangeSource, onError, adOverlay }: Props) {
+export default function VideoPlayer({ src, poster, premiumLocked, streamError, sources = [], selectedSourceId, onChangeSource, onError, adOverlay, channelName, channelLogo }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -33,24 +35,95 @@ export default function VideoPlayer({ src, poster, premiumLocked, streamError, s
     let hls: Hls | null = null;
 
     if (Hls.isSupported()) {
-      hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+      hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: false, // désactivé — la plupart des CDN IPTV ne supportent pas LL-HLS
+        // ── Fast startup: buffer just enough to start playing quickly ──
+        maxBufferLength: 10,            // start playback after ~10s of buffer
+        maxMaxBufferLength: 30,         // don't over-buffer (was 60)
+        maxBufferSize: 30 * 1024 * 1024,  // 30 MB cap
+        maxBufferHole: 0.5,
+        // ── Faster ABR switching ──
+        abrEwmaDefaultEstimate: 2_000_000,  // assume 2 Mbps initially
+        startLevel: -1,                     // auto-pick quality from bandwidth estimate
+        // ── Retry: fail fast on 403 (expired segment hash) so manifest reloads quickly ──
+        fragLoadingMaxRetry: 1,        // 1 retry only — expired hashes won't heal with more retries
+        fragLoadingRetryDelay: 500,
+        fragLoadingMaxRetryTimeout: 4000,
+        manifestLoadingMaxRetry: 3,
+        manifestLoadingRetryDelay: 1000,
+        manifestLoadingMaxRetryTimeout: 15000,
+        levelLoadingMaxRetry: 3,
+        levelLoadingRetryDelay: 1000,
+        levelLoadingMaxRetryTimeout: 10000,
+        // ── Back-buffer: free memory for already-played segments ──
+        backBufferLength: 30,
+      });
       hls.loadSource(src);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) {
-          let msg = 'Impossible de lire la chaîne';
-          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            const status = (data.response as any)?.code;
-            if (status === 403) msg = 'Accès refusé au flux (403)';
-            else if (status === 404) msg = 'Flux introuvable (404)';
-            else msg = 'Erreur réseau — flux inaccessible';
-          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-            msg = 'Erreur de décodage du flux vidéo';
+
+      let recoveryAttempts = 0;
+      let manifestReloads = 0;
+      const MAX_RECOVERY = 5;
+      const MAX_MANIFEST_RELOADS = 8;
+
+      hls.on(Hls.Events.ERROR, (_event: string, data: any) => {
+        // ── Handle expired segment hash (403, even if non-fatal) ──
+        // CDN IPTV segment URLs use short-lived tokens (~30s). Retrying the same
+        // expired URL is pointless — reload the manifest to get fresh CDN tokens.
+        if (
+          data.type === Hls.ErrorTypes.NETWORK_ERROR &&
+          (data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR ||
+           data.details === Hls.ErrorDetails.LEVEL_LOAD_ERROR) &&
+          (data.response?.code === 403 || data.response?.status === 403)
+        ) {
+          if (manifestReloads < MAX_MANIFEST_RELOADS) {
+            manifestReloads++;
+            console.warn(`[HLS] 403 sur segment — rechargement manifest (${manifestReloads}/${MAX_MANIFEST_RELOADS})`);
+            hls!.stopLoad();
+            setTimeout(() => { if (hls) hls.loadSource(src); }, 500);
           }
-          onError?.(msg);
+          return; // don't propagate to fatal handler
         }
+
+        if (!data.fatal) return;
+
+        // Attempt automatic recovery before reporting an error
+        if (recoveryAttempts < MAX_RECOVERY) {
+          recoveryAttempts++;
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            if ((data.response?.code === 403 || data.response?.status === 403) && manifestReloads < MAX_MANIFEST_RELOADS) {
+              manifestReloads++;
+              console.warn(`[HLS] Fatal 403 — rechargement manifest (${manifestReloads}/${MAX_MANIFEST_RELOADS})`);
+              setTimeout(() => { if (hls) hls.loadSource(src); }, 800);
+              return;
+            }
+            console.warn(`[HLS] Network error recovery attempt ${recoveryAttempts}/${MAX_RECOVERY}`);
+            hls!.startLoad();
+            return;
+          }
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            console.warn(`[HLS] Media error recovery attempt ${recoveryAttempts}/${MAX_RECOVERY}`);
+            hls!.recoverMediaError();
+            return;
+          }
+        }
+
+        let msg = 'Impossible de lire la chaîne';
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          const status = (data.response as any)?.code;
+          if (status === 403) msg = 'Accès refusé au flux (403)';
+          else if (status === 404) msg = 'Flux introuvable (404)';
+          else msg = 'Erreur réseau — vérifiez votre connexion';
+        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          msg = 'Erreur de décodage — essayez une autre source';
+        }
+        onError?.(msg);
       });
+
+      // Reset recovery counter on successful load
+      hls.on(Hls.Events.FRAG_LOADED, () => { recoveryAttempts = 0; manifestReloads = 0; });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = src;
       video.addEventListener('loadedmetadata', () => video.play().catch(() => {}));
@@ -79,6 +152,38 @@ export default function VideoPlayer({ src, poster, premiumLocked, streamError, s
     document.addEventListener('fullscreenchange', handleFSChange);
     return () => document.removeEventListener('fullscreenchange', handleFSChange);
   }, []);
+
+  // ── Media Session API: show channel info on device OS media controls ──
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+
+    const artwork: MediaImage[] = channelLogo
+      ? [
+          { src: channelLogo, sizes: '96x96',  type: 'image/png' },
+          { src: channelLogo, sizes: '128x128', type: 'image/png' },
+          { src: channelLogo, sizes: '256x256', type: 'image/png' },
+        ]
+      : [];
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title:  channelName ?? 'Chaîne en direct',
+      artist: 'Xonaris',
+      album:  'TV en direct',
+      artwork,
+    });
+
+    navigator.mediaSession.setActionHandler('play', () => {
+      videoRef.current?.play();
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {
+      videoRef.current?.pause();
+    });
+
+    return () => {
+      navigator.mediaSession.setActionHandler('play',  null);
+      navigator.mediaSession.setActionHandler('pause', null);
+    };
+  }, [channelName, channelLogo]);
 
   const togglePlay = () => {
     const v = videoRef.current;
@@ -256,6 +361,21 @@ export default function VideoPlayer({ src, poster, premiumLocked, streamError, s
         </button>
       )}
 
+      {/* Xonaris branding watermark — always visible during playback */}
+      <div className={`absolute z-[15] pointer-events-none transition-all duration-300 ${
+        fullscreen
+          ? 'bottom-16 right-6 sm:bottom-20 sm:right-8'
+          : 'bottom-2 right-2 sm:bottom-3 sm:right-4'
+      }`}>
+        <img
+          src="/branding/xonaris-full-no-bg-white.png"
+          alt=""
+          className={`object-contain opacity-40 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)] ${
+            fullscreen ? 'h-7 sm:h-9' : 'h-5 sm:h-6'
+          }`}
+        />
+      </div>
+
       {/* Controls Overlay — hidden during ad */}
       <div
         className={`absolute inset-0 flex flex-col justify-end transition-opacity duration-500 ease-out pointer-events-none z-30 ${
@@ -263,6 +383,20 @@ export default function VideoPlayer({ src, poster, premiumLocked, streamError, s
         }`}
       >
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent pointer-events-none" />
+
+        {/* Channel name & logo — top-left, visible with controls */}
+        {(channelName || channelLogo) && (
+          <div className="absolute top-3 left-3 sm:top-4 sm:left-4 flex items-center gap-2 z-40 pointer-events-none">
+            {channelLogo && (
+              <div className="w-8 h-8 sm:w-9 sm:h-9 bg-black/50 rounded-lg flex items-center justify-center backdrop-blur-sm border border-white/10 p-1.5 shrink-0">
+                <img src={channelLogo} alt="" className="w-full h-full object-contain" />
+              </div>
+            )}
+            {channelName && (
+              <span className="text-white font-bold text-xs sm:text-sm drop-shadow-lg bg-black/40 backdrop-blur-sm px-2.5 py-1 rounded-lg border border-white/10 line-clamp-1 max-w-[180px] sm:max-w-[260px]">{channelName}</span>
+            )}
+          </div>
+        )}
 
         {/* Bottom Controls */}
         {!isErrorOrPremium && (
@@ -302,11 +436,7 @@ export default function VideoPlayer({ src, poster, premiumLocked, streamError, s
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-1 rounded bg-red-500/10 text-red-500 font-bold text-[9px] sm:text-[11px] uppercase tracking-wider ml-1 sm:ml-2 border border-red-500/20 backdrop-blur-sm">
-                  <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
-                  <span className="hidden sm:inline">En Direct</span>
-                  <span className="inline sm:hidden">Direct</span>
-                </div>
+
               </div>
               
               <button

@@ -30,6 +30,9 @@ function isEncryptionHandshakeError(status?: number, message?: unknown): boolean
     'invalid x-encryption-key header',
     'encrypted request required',
     'missing encrypted session key',
+    'missing anti-replay headers',
+    'request expired',
+    'replay detected',
   ].some((fragment) => normalized.includes(fragment));
 }
 
@@ -175,7 +178,10 @@ api.interceptors.response.use(
     if (status === 403 && err.response?.data?.message === 'Compte banni') {
       if (path !== '/banned') {
         try {
-          sessionStorage.setItem('xonaris_ban_reason', err.response.data.ban_reason || '');
+          // Sanitize ban_reason before storing (strip HTML tags, truncate)
+          const rawReason = err.response.data.ban_reason || '';
+          const sanitized = String(rawReason).replace(/<[^>]*>/g, '').slice(0, 500);
+          sessionStorage.setItem('xonaris_ban_reason', sanitized);
         } catch { /* ignore */ }
         window.location.href = '/banned';
       }

@@ -19,7 +19,7 @@ export default function Home() {
   return (
     <div className="relative w-full h-screen overflow-hidden flex items-center justify-center">
       {/* Dynamic Background Image */}
-      {bgLanding ? (
+      {bgLanding && /^https?:\/\//.test(bgLanding) ? (
         <div 
           className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat"
           style={{ backgroundImage: `url(${bgLanding})` }}
